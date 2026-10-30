@@ -1,15 +1,29 @@
 {
-  "manifest_version": 3,
-  "name": "AI Studio Local Code Syncer",
-  "version": "1.0.0",
-  "description": "Syncs code blocks from Google AI Studio directly to local files via File System Access API.",
-  "permissions": ["storage"],
-  "content_scripts": [
-    {
-      "matches": ["https://aistudio.google.com/*"],
-      "js": ["content.js"],
-      "css": ["styles.css"],
-      "run_at": "document_idle"
-    }
-  ]
+    "manifest_version": 3,
+    "name": "AI Studio Workspace Syncer",
+    "version": "2.1.0",
+    "description": "Sync code blocks from Google AI Studio to your local workspace.",
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "aistudio-sync@local.net",
+            "strict_min_version": "115.0"
+        }
+    },
+    "permissions": [
+        "storage"
+    ],
+    "host_permissions": [
+        "https://aistudio.google.com/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://aistudio.google.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_end"
+        }
+    ]
 }
