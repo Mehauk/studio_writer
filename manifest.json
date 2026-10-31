@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "AI Studio Local Code Syncer",
+  "version": "1.0.0",
+  "description": "Syncs code blocks from Google AI Studio directly to local files via File System Access API.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://aistudio.google.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
