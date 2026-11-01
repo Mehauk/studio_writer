@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "AI Studio Workspace Syncer",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "description": "Sync code blocks from Google AI Studio to your local workspace.",
     "browser_specific_settings": {
         "gecko": {
@@ -10,7 +10,8 @@
         }
     },
     "permissions": [
-        "storage"
+        "storage",
+        "clipboardRead"
     ],
     "host_permissions": [
         "https://aistudio.google.com/*"

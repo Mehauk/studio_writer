@@ -10,6 +10,8 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
 (function () {
     const isChromium = typeof window.showDirectoryPicker === "function";
     let dirHandle = null;
+    let ruleInsertedForChat = false;
+    let lastUrl = window.location.href;
 
     const PROTOCOL_TAG = "[CRITICAL FORMATTING RULE]";
     const FORMAT_INSTRUCTION = `\n\n${PROTOCOL_TAG}: When generating code, always specify the relative file path either as a header immediately preceding the code block like:
@@ -30,7 +32,7 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
         bottom: 24px !important;
         right: 24px !important;
         z-index: 2147483647 !important;
-        width: 320px !important;
+        width: 300px !important;
         background: #1e1f20 !important;
         color: #e3e3e3 !important;
         border: 1px solid #3c4043 !important;
@@ -77,7 +79,7 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
         background: #1765cc !important;
       }
       #ai-sync-log {
-        max-height: 100px !important;
+        max-height: 120px !important;
         overflow-y: auto !important;
         background: #121316 !important;
         padding: 6px !important;
@@ -93,10 +95,13 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
 
     // --- 2. File Writing Engine ---
     async function commitFile(path, content) {
+        if (!content || !content.trim()) {
+            throw new Error("Content is empty; refused to write empty file.");
+        }
+
         const cleanPath = path.replace(/\\/g, "/").replace(/^\/+/, "");
 
         if (isChromium && dirHandle) {
-            // Chrome/Edge: Direct folder writing
             const parts = cleanPath.split("/").filter(Boolean);
             const fileName = parts.pop();
 
@@ -109,7 +114,6 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
             await writable.write(content);
             await writable.close();
         } else {
-            // Firefox / Fallback: Native HTML5 download trigger
             const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -122,22 +126,100 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
         }
     }
 
-    // --- 3. Parsing Logic (Ignores Model Thoughts) ---
+    // --- 3. "Copy as Markdown" Extraction via Turn Dropdown ---
+    function closeAnyOpenMenu() {
+        const backdrop = document.querySelector(".cdk-overlay-backdrop");
+        if (backdrop) backdrop.click();
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    }
+
+    async function getMarkdownFromTurnDropdown(turnNode) {
+        if (!turnNode) return null;
+
+        const optionsBtn =
+            turnNode.querySelector("ms-chat-turn-options button") ||
+            turnNode.querySelector("button[aria-label*='options' i]") ||
+            turnNode.querySelector("button[mattooltip*='options' i]") ||
+            turnNode.querySelector(".actions button.mat-mdc-menu-trigger");
+
+        if (!optionsBtn) return null;
+
+        // Ensure actions container is interactive
+        const actionsWrapper = optionsBtn.closest(".actions") || optionsBtn.parentElement;
+        const prevPointerEvents = actionsWrapper ? actionsWrapper.style.pointerEvents : "";
+        const prevOpacity = actionsWrapper ? actionsWrapper.style.opacity : "";
+        if (actionsWrapper) {
+            actionsWrapper.style.pointerEvents = "auto";
+            actionsWrapper.style.opacity = "1";
+        }
+
+        try {
+            optionsBtn.click();
+
+            // Wait for Angular CDK overlay menu panel to attach to DOM
+            let menuPanel = null;
+            for (let i = 0; i < 15; i++) {
+                await new Promise((r) => setTimeout(r, 40));
+                const panels = document.querySelectorAll(".mat-mdc-menu-panel, .mat-menu-panel");
+                if (panels.length > 0) {
+                    menuPanel = panels[panels.length - 1];
+                    break;
+                }
+            }
+
+            if (!menuPanel) return null;
+
+            const items = Array.from(
+                menuPanel.querySelectorAll(".mat-mdc-menu-item, [role='menuitem'], button")
+            );
+            const copyMarkdownBtn = items.find((el) => {
+                const label = (el.textContent || "").toLowerCase();
+                return label.includes("markdown");
+            });
+
+            if (!copyMarkdownBtn) {
+                closeAnyOpenMenu();
+                return null;
+            }
+
+            copyMarkdownBtn.click();
+
+            // Allow clipboard write event to settle
+            await new Promise((r) => setTimeout(r, 100));
+
+            const mdText = await navigator.clipboard.readText();
+            return mdText && mdText.trim() ? mdText : null;
+        } catch (e) {
+            console.warn("[AI Studio Syncer] Dropdown clipboard read failed:", e);
+            return null;
+        } finally {
+            if (actionsWrapper) {
+                actionsWrapper.style.pointerEvents = prevPointerEvents;
+                actionsWrapper.style.opacity = prevOpacity;
+            }
+            closeAnyOpenMenu();
+        }
+    }
+
+    // --- 4. Fallback DOM Parsing Engine ---
     function extractFilesFromNode(turnNode) {
         const files = [];
 
-        // Strip thoughts/reasoning completely
+        // Exclude thoughts and reasoning chunks
         const codeBlocks = Array.from(turnNode.querySelectorAll("ms-code-block")).filter(
             (node) => !node.closest("ms-thought-chunk, .thought-panel")
         );
 
         for (const block of codeBlocks) {
-            const code = block.querySelector("pre code") || block.querySelector("pre");
-            if (!code) continue;
+            const pre = block.querySelector("pre");
+            if (!pre) continue;
 
-            let text = code.innerText.trim();
+            const codeEl = pre.querySelector("code") || pre;
+            // Use textContent so collapsed/visibility:hidden panels do NOT return ""
+            let text = (codeEl.textContent || codeEl.innerText || "").replace(/\r\n/g, "\n").trim();
+            if (!text) continue;
+
             let path = "";
-
             const lines = text.split("\n");
             const firstLine = lines[0].trim();
             const match = firstLine.match(
@@ -146,40 +228,49 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
 
             if (match) {
                 path = match[1];
-                text = lines.slice(1).join("\n").trimStart();
+                text = lines.slice(1).join("\n").trim();
             } else {
                 let prev = block.previousElementSibling;
-                if (prev) {
-                    const prevMatch = prev.innerText.trim().match(
+                while (prev && !path) {
+                    const prevText = (prev.textContent || prev.innerText || "").trim();
+                    const prevMatch = prevText.match(
                         /(?:\[FILE:\s*|File:\s*`?)([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)`?\]?/i
                     );
-                    if (prevMatch) path = prevMatch[1];
+                    if (prevMatch) {
+                        path = prevMatch[1];
+                        break;
+                    }
+                    if (prevText.length > 0) break;
+                    prev = prev.previousElementSibling;
                 }
             }
 
-            if (path && path.includes(".")) {
-                files.push({ path: path.trim(), content: text });
+            if (path && path.includes(".") && text.length > 0) {
+                files.push({ path: path.trim(), content: text + "\n" });
             }
         }
 
-        // Fallback: Check raw Markdown if elements are unrendered
+        // Secondary fallback: parse raw text content from cloned turn node
         if (files.length === 0) {
             const clone = turnNode.cloneNode(true);
             clone.querySelectorAll("ms-thought-chunk, .thought-panel").forEach((e) => e.remove());
-            return parseRawMarkdown(clone.innerText);
+            // Use textContent because detached nodes in Blink return "" for innerText
+            const rawText = (clone.textContent || clone.innerText || "").replace(/\r\n/g, "\n");
+            return parseRawMarkdown(rawText);
         }
 
         return files;
     }
 
     function parseRawMarkdown(text) {
+        if (!text) return [];
         const files = [];
-        const regex = /(?:\[FILE:\s*([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)\]\s*\n)?```(?:[\w+-]+)?(?::|\s+file=|\s+filename=)?([^\s\n]*?)?\n([\s\S]*?)```/gi;
+        const regex = /(?:(?:\[FILE:\s*|File:\s*`?)([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)`?\]?\s*\n\s*)?```(?:[\w+-]+)?(?::|\s+file=|\s+filename=)?([^\s\n]*?)?\n([\s\S]*?)```/gi;
         let match;
 
         while ((match = regex.exec(text)) !== null) {
             let path = match[1] || match[2] || "";
-            let code = match[3];
+            let code = match[3] || "";
 
             if (!path) {
                 const firstLine = code.split("\n")[0].trim();
@@ -192,31 +283,49 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
                 }
             }
 
-            if (path && path.includes(".")) {
-                files.push({ path: path.trim(), content: code.trimStart() });
+            const trimmed = code.trim();
+            if (path && path.includes(".") && trimmed.length > 0) {
+                files.push({ path: path.trim(), content: trimmed + "\n" });
             }
         }
         return files;
     }
 
-    // --- 4. Angular-Compatible Textbox Insertion ---
-    function insertRule() {
+    // --- 5. First-Turn-Only Prompt Insertion ---
+    function isFirstTurn() {
+        const turns = document.querySelectorAll("ms-chat-turn");
+        return turns.length === 0;
+    }
+
+    function insertRuleIfFirstTurn() {
+        if (ruleInsertedForChat) return false;
+
+        // If there are already turns, this conversation has already started
+        if (!isFirstTurn()) {
+            ruleInsertedForChat = true;
+            return false;
+        }
+
         const input =
+            document.querySelector("textarea[formcontrolname='promptText']") ||
+            document.querySelector("textarea[aria-label*='Enter a prompt' i]") ||
             document.querySelector("textarea[aria-label*='Type something' i]") ||
-            document.querySelector("ms-chat-prompt textarea") ||
-            document.querySelector("textarea[placeholder*='Type' i]") ||
             document.querySelector("textarea[aria-label*='prompt' i]") ||
+            document.querySelector("textarea[placeholder*='prompt' i]") ||
+            document.querySelector("ms-chat-prompt textarea") ||
             document.querySelector("div[contenteditable='true']") ||
             document.querySelector("textarea");
 
         if (!input) return false;
 
         const val = input.tagName === "TEXTAREA" ? input.value : input.innerText;
-        if (val.includes(PROTOCOL_TAG)) return false;
+        if (val.includes(PROTOCOL_TAG)) {
+            ruleInsertedForChat = true;
+            return false;
+        }
 
         input.focus();
 
-        // execCommand ensures Angular registers the changes into its Reactive Form
         const addition = (val.trim() ? "\n\n" : "") + FORMAT_INSTRUCTION.trim();
         const ok = document.execCommand("insertText", false, addition);
 
@@ -226,18 +335,42 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
             input.dispatchEvent(new Event("input", { bubbles: true }));
             input.dispatchEvent(new Event("change", { bubbles: true }));
         }
+
+        // Place cursor at the start of the prompt box if it was previously empty
+        if (!val.trim() && input.setSelectionRange) {
+            input.setSelectionRange(0, 0);
+        }
+
+        ruleInsertedForChat = true;
         return true;
     }
 
-    // Auto-inject whenever clicking/focusing any prompt input
+    // Auto-inject only when focusing input on the first turn
     document.addEventListener("focusin", (e) => {
         const t = e.target;
         if (t && (t.tagName === "TEXTAREA" || t.isContentEditable) && !t.closest("#ai-sync-panel-host")) {
-            insertRule();
+            insertRuleIfFirstTurn();
         }
     });
 
-    // --- 5. UI Builder (Attached to documentElement to survive Angular resets) ---
+    // Reset injection flag if user navigates to a brand new chat
+    setInterval(() => {
+        if (window.location.href !== lastUrl) {
+            lastUrl = window.location.href;
+            if (isFirstTurn()) {
+                ruleInsertedForChat = false;
+            } else {
+                ruleInsertedForChat = true;
+            }
+        }
+    }, 500);
+
+    // If loaded on a page with existing turns, mark inserted so it never triggers
+    if (!isFirstTurn()) {
+        ruleInsertedForChat = true;
+    }
+
+    // --- 6. UI Builder ---
     function buildUI() {
         injectStyles();
         if (document.getElementById("ai-sync-panel-host")) return;
@@ -254,14 +387,12 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
         ${isChromium ? "Target: <i>No folder selected</i>" : "Target: <i>Direct Browser Downloads</i>"}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
-        ${isChromium ? `<button class="ai-sync-btn" id="ai-btn-folder">Select Project Folder</button>` : ""}
-        <button class="ai-sync-btn" id="ai-btn-insert">📝 Put Rule in Textbox</button>
+        ${isChromium ? `<button class="ai-sync-btn" id="ai-btn-folder">📁 Select Project Folder</button>` : ""}
         <button class="ai-sync-btn primary" id="ai-btn-sync">⚡ Sync Latest Response</button>
       </div>
       <div id="ai-sync-log"></div>
     `;
 
-        // Append to documentElement so Angular can never overwrite it
         (document.documentElement || document.body).appendChild(panel);
 
         const logDiv = panel.querySelector("#ai-sync-log");
@@ -275,11 +406,6 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
             logDiv.appendChild(line);
             logDiv.scrollTop = logDiv.scrollHeight;
         }
-
-        panel.querySelector("#ai-btn-insert").addEventListener("click", () => {
-            if (insertRule()) log("Rule added to prompt!");
-            else log("Rule already present or input not found.", true);
-        });
 
         if (isChromium) {
             panel.querySelector("#ai-btn-folder").addEventListener("click", async () => {
@@ -306,25 +432,53 @@ Or as the first line comment inside the block (e.g., // filepath: src/components
             }
 
             const latestTurn = turns[turns.length - 1].closest("ms-chat-turn");
-            const files = extractFilesFromNode(latestTurn);
+            log("Extracting response files...");
+
+            let files = [];
+
+            // Primary: Use "Copy as markdown" from turn options dropdown
+            try {
+                const mdText = await getMarkdownFromTurnDropdown(latestTurn);
+                if (mdText) {
+                    files = parseRawMarkdown(mdText);
+                    if (files.length > 0) {
+                        log(`Found ${files.length} file(s) via Markdown copy.`);
+                    }
+                }
+            } catch (err) {
+                console.warn("[AI Studio Syncer] Dropdown Markdown extraction failed:", err);
+            }
+
+            // Fallback: Use direct DOM parsing if dropdown copy was unavailable
+            if (files.length === 0) {
+                files = extractFilesFromNode(latestTurn);
+                if (files.length > 0) {
+                    log(`Found ${files.length} file(s) via DOM nodes.`);
+                }
+            }
 
             if (files.length === 0) {
                 log("No code blocks with [FILE: path] found.", true);
                 return;
             }
 
+            let saved = 0;
             for (const file of files) {
                 try {
                     await commitFile(file.path, file.content);
-                    log(`✓ Saved ${file.path}`);
+                    log(`✓ Saved ${file.path} (${file.content.length} chars)`);
+                    saved++;
                 } catch (err) {
                     log(`✕ Error ${file.path}: ${err.message}`, true);
                 }
             }
+
+            if (saved > 0) {
+                log(`Successfully synced ${saved} file(s)!`);
+            }
         });
     }
 
-    // Persistence heartbeat: keeps UI alive across navigation
     setInterval(buildUI, 1000);
     buildUI();
 })();
