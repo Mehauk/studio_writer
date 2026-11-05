@@ -15,9 +15,9 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
 
     const PROTOCOL_TAG = "[CRITICAL FORMATTING RULE]";
     const FORMAT_INSTRUCTION = `\n\n${PROTOCOL_TAG}: When generating code, always specify the relative file path either as a header immediately preceding the code block like:
-[FILE: src/components/Button.tsx]
-\`\`\`tsx
-// code...
+[FILE: src/components/my_file.ext]
+\`\`\`markdown
+// code or text...
 \`\`\`
 Or as the first line comment inside the block (e.g., // filepath: src/components/Button.tsx).`;
 
