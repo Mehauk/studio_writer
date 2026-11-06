@@ -18,8 +18,7 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
 [FILE: src/components/my_file.ext]
 \`\`\`markdown
 // code or text...
-\`\`\`
-Or as the first line comment inside the block (e.g., // filepath: src/components/Button.tsx).`;
+\`\`\`;
 
     // --- 1. Programmatic Style Injection ---
     function injectStyles() {
