@@ -18,7 +18,8 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
 [FILE: src/components/my_file.ext]
 \`\`\`markdown
 // code or text...
-\`\`\`;
+\`\`\`
+If generating multiple files or large codebases that might exceed output limits or risk getting cut off, batch the results into smaller groups across turns.`;
 
     // --- 1. Programmatic Style Injection ---
     function injectStyles() {
@@ -27,23 +28,19 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
         styleEl.id = "ai-sync-injected-css";
         styleEl.textContent = `
       #ai-sync-panel-host {
-        position: fixed !important;
-        bottom: 24px !important;
-        right: 24px !important;
-        z-index: 2147483647 !important;
-        width: 300px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
         background: #1e1f20 !important;
         color: #e3e3e3 !important;
         border: 1px solid #3c4043 !important;
-        border-radius: 10px !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.7) !important;
+        border-radius: 8px !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
         font-size: 13px !important;
-        padding: 14px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 10px !important;
+        padding: 10px 12px !important;
+        margin: 8px 0 !important;
         box-sizing: border-box !important;
+        width: 100% !important;
       }
       #ai-sync-panel-host * {
         box-sizing: border-box !important;
@@ -51,20 +48,27 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
       #ai-sync-panel-host header {
         display: flex !important;
         justify-content: space-between !important;
+        align-items: center !important;
         font-weight: 600 !important;
         border-bottom: 1px solid #333538 !important;
         padding-bottom: 6px !important;
+      }
+      .ai-sync-btn-row {
+        display: flex !important;
+        gap: 6px !important;
+        flex-wrap: wrap !important;
       }
       .ai-sync-btn {
         background: #2a2b2e !important;
         color: #e3e3e3 !important;
         border: 1px solid #444746 !important;
-        padding: 8px 10px !important;
+        padding: 6px 10px !important;
         border-radius: 6px !important;
         cursor: pointer !important;
         font-size: 12px !important;
         font-weight: 500 !important;
         text-align: center !important;
+        flex: 1 1 auto !important;
       }
       .ai-sync-btn:hover {
         background: #37393d !important;
@@ -78,10 +82,10 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
         background: #1765cc !important;
       }
       #ai-sync-log {
-        max-height: 120px !important;
+        max-height: 100px !important;
         overflow-y: auto !important;
         background: #121316 !important;
-        padding: 6px !important;
+        padding: 6px 8px !important;
         border-radius: 4px !important;
         font-family: monospace !important;
         font-size: 11px !important;
@@ -143,7 +147,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
 
         if (!optionsBtn) return null;
 
-        // Ensure actions container is interactive
         const actionsWrapper = optionsBtn.closest(".actions") || optionsBtn.parentElement;
         const prevPointerEvents = actionsWrapper ? actionsWrapper.style.pointerEvents : "";
         const prevOpacity = actionsWrapper ? actionsWrapper.style.opacity : "";
@@ -155,7 +158,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
         try {
             optionsBtn.click();
 
-            // Wait for Angular CDK overlay menu panel to attach to DOM
             let menuPanel = null;
             for (let i = 0; i < 15; i++) {
                 await new Promise((r) => setTimeout(r, 40));
@@ -182,8 +184,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
             }
 
             copyMarkdownBtn.click();
-
-            // Allow clipboard write event to settle
             await new Promise((r) => setTimeout(r, 100));
 
             const mdText = await navigator.clipboard.readText();
@@ -204,7 +204,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
     function extractFilesFromNode(turnNode) {
         const files = [];
 
-        // Exclude thoughts and reasoning chunks
         const codeBlocks = Array.from(turnNode.querySelectorAll("ms-code-block")).filter(
             (node) => !node.closest("ms-thought-chunk, .thought-panel")
         );
@@ -214,7 +213,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
             if (!pre) continue;
 
             const codeEl = pre.querySelector("code") || pre;
-            // Use textContent so collapsed/visibility:hidden panels do NOT return ""
             let text = (codeEl.textContent || codeEl.innerText || "").replace(/\r\n/g, "\n").trim();
             if (!text) continue;
 
@@ -249,11 +247,9 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
             }
         }
 
-        // Secondary fallback: parse raw text content from cloned turn node
         if (files.length === 0) {
             const clone = turnNode.cloneNode(true);
             clone.querySelectorAll("ms-thought-chunk, .thought-panel").forEach((e) => e.remove());
-            // Use textContent because detached nodes in Blink return "" for innerText
             const rawText = (clone.textContent || clone.innerText || "").replace(/\r\n/g, "\n");
             return parseRawMarkdown(rawText);
         }
@@ -299,7 +295,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
     function insertRuleIfFirstTurn() {
         if (ruleInsertedForChat) return false;
 
-        // If there are already turns, this conversation has already started
         if (!isFirstTurn()) {
             ruleInsertedForChat = true;
             return false;
@@ -335,7 +330,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
             input.dispatchEvent(new Event("change", { bubbles: true }));
         }
 
-        // Place cursor at the start of the prompt box if it was previously empty
         if (!val.trim() && input.setSelectionRange) {
             input.setSelectionRange(0, 0);
         }
@@ -344,7 +338,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
         return true;
     }
 
-    // Auto-inject only when focusing input on the first turn
     document.addEventListener("focusin", (e) => {
         const t = e.target;
         if (t && (t.tagName === "TEXTAREA" || t.isContentEditable) && !t.closest("#ai-sync-panel-host")) {
@@ -352,7 +345,6 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
         }
     });
 
-    // Reset injection flag if user navigates to a brand new chat
     setInterval(() => {
         if (window.location.href !== lastUrl) {
             lastUrl = window.location.href;
@@ -364,17 +356,54 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
         }
     }, 500);
 
-    // If loaded on a page with existing turns, mark inserted so it never triggers
     if (!isFirstTurn()) {
         ruleInsertedForChat = true;
     }
 
-    // --- 6. UI Builder ---
+    // --- 6. Helper: Find the "URL Context" element ---
+    function findUrlContextElement() {
+        const walker = document.createTreeWalker(
+            document.body || document.documentElement,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node.nodeValue && node.nodeValue.toLowerCase().includes("url context")) {
+                let parent = node.parentElement;
+                // Walk upward to select the container block rather than a bare inline text tag
+                if (parent) {
+                    const blockContainer = parent.closest("div, mat-expansion-panel, section, li") || parent;
+                    return blockContainer;
+                }
+            }
+        }
+        return null;
+    }
+
+    // --- 7. Inline UI Builder ---
     function buildUI() {
         injectStyles();
-        if (document.getElementById("ai-sync-panel-host")) return;
 
-        const panel = document.createElement("div");
+        const targetAnchor = findUrlContextElement();
+        if (!targetAnchor) return;
+
+        let panel = document.getElementById("ai-sync-panel-host");
+
+        // If panel exists and is already right after target anchor, nothing to do
+        if (panel && targetAnchor.nextElementSibling === panel) {
+            return;
+        }
+
+        // If panel exists elsewhere, move it under the target anchor
+        if (panel) {
+            targetAnchor.insertAdjacentElement("afterend", panel);
+            return;
+        }
+
+        panel = document.createElement("div");
         panel.id = "ai-sync-panel-host";
 
         panel.innerHTML = `
@@ -385,14 +414,14 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
       <div id="ai-sync-status" style="font-size:11px;color:#9aa0a6;">
         ${isChromium ? "Target: <i>No folder selected</i>" : "Target: <i>Direct Browser Downloads</i>"}
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        ${isChromium ? `<button class="ai-sync-btn" id="ai-btn-folder">📁 Select Project Folder</button>` : ""}
-        <button class="ai-sync-btn primary" id="ai-btn-sync">⚡ Sync Latest Response</button>
+      <div class="ai-sync-btn-row">
+        ${isChromium ? `<button class="ai-sync-btn" id="ai-btn-folder">📁 Select Folder</button>` : ""}
+        <button class="ai-sync-btn primary" id="ai-btn-sync">⚡ Sync Latest</button>
       </div>
       <div id="ai-sync-log"></div>
     `;
 
-        (document.documentElement || document.body).appendChild(panel);
+        targetAnchor.insertAdjacentElement("afterend", panel);
 
         const logDiv = panel.querySelector("#ai-sync-log");
         const statusText = panel.querySelector("#ai-sync-status");
@@ -426,7 +455,7 @@ console.log("[AI Studio Syncer] Script loaded on", window.location.href);
             }
 
             if (isChromium && !dirHandle) {
-                alert("Please click 'Select Project Folder' first!");
+                alert("Please click 'Select Folder' first!");
                 return;
             }
 
